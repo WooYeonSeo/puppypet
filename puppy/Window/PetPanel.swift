@@ -25,4 +25,9 @@ final class PetPanel: NSPanel {
 
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+
+    // 메뉴바/Dock 위로도 자유롭게 드래그 가능하도록 시스템 자동 제약 비활성화
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        frameRect
+    }
 }
