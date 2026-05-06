@@ -1,0 +1,128 @@
+import SwiftUI
+import AppKit
+import Combine
+
+final class PetViewModel: ObservableObject {
+    @Published var bubbleText: String?
+    @Published var isDragging: Bool = false
+    @Published var remindersEnabled: Bool = true
+    var onDragBegan: (() -> Void)?
+    var onDragEnded: ((CGPoint) -> Void)?
+
+    // 우클릭 컨텍스트 메뉴 액션
+    var onContextToggleReminders: (() -> Void)?
+    var onContextResetTimer: (() -> Void)?
+    var onContextHide: (() -> Void)?
+    var onContextQuit: (() -> Void)?
+
+    private var bubbleTask: Task<Void, Never>?
+
+    func showBubble(_ text: String, autoHideAfter seconds: TimeInterval = 5) {
+        bubbleTask?.cancel()
+        bubbleText = text
+        bubbleTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            if Task.isCancelled { return }
+            await MainActor.run { [weak self] in
+                if self?.bubbleText == text { self?.bubbleText = nil }
+            }
+        }
+    }
+
+    func clearBubble() {
+        bubbleTask?.cancel()
+        bubbleText = nil
+    }
+
+    func beginDragging() {
+        isDragging = true
+        onDragBegan?()
+    }
+
+    func endDragging(at origin: CGPoint) {
+        isDragging = false
+        onDragEnded?(origin)
+    }
+}
+
+struct PetView: View {
+    @ObservedObject var viewModel: PetViewModel
+
+    // NSEvent.mouseLocation = 화면 절대 좌표(bottom-left). 윈도우가 이동해도 영향 없음.
+    @State private var dragStartMouse: CGPoint?
+    @State private var dragStartWindowOrigin: CGPoint?
+
+    // 추후 PNG sprite 교체 가이드:
+    // 1) Assets.xcassets에 dog_idle_0, dog_idle_1, dog_bark_0 ... 등록
+    // 2) 아래 Text("🐶")를 Image("dog_idle_0").resizable().interpolation(.none) 로 교체
+    // 3) TimelineView(.animation(minimumInterval: 0.25)) 로 프레임 순환
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // 말풍선 영역 (고정 높이로 강아지 위치 흔들림 방지)
+            Group {
+                if let bubble = viewModel.bubbleText {
+                    SpeechBubbleView(text: bubble)
+                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                } else {
+                    Color.clear
+                }
+            }
+            .frame(height: 60, alignment: .bottom)
+
+            // 강아지
+            Text("🐶")
+                .font(.system(size: 80))
+                .frame(width: 120, height: 120)
+                .contentShape(Rectangle())
+                .gesture(dragGesture)
+                .contextMenu {
+                    Button(viewModel.remindersEnabled ? "Reminders: On ✓" : "Reminders: Off") {
+                        viewModel.onContextToggleReminders?()
+                    }
+                    Button("Reset Timer") {
+                        viewModel.onContextResetTimer?()
+                    }
+                    Divider()
+                    Button("Hide Puppy") {
+                        viewModel.onContextHide?()
+                    }
+                    Divider()
+                    Button("Quit PuppyPet") {
+                        viewModel.onContextQuit?()
+                    }
+                }
+        }
+        .frame(width: 200, height: 200)
+        .animation(.easeInOut(duration: 0.2), value: viewModel.bubbleText)
+    }
+
+    private var dragGesture: some Gesture {
+        // SwiftUI DragGesture의 .global은 panel 내부 좌표계라 panel 이동 시 좌표가 같이 흔들려
+        // 가속 드리프트가 발생함. translation/value는 무시하고 NSEvent.mouseLocation(화면 절대 좌표)만 사용.
+        DragGesture(minimumDistance: 0, coordinateSpace: .global)
+            .onChanged { _ in
+                guard let window = NSApp.windows.first(where: { $0 is PetPanel }) else { return }
+                if dragStartMouse == nil {
+                    dragStartMouse = NSEvent.mouseLocation
+                    dragStartWindowOrigin = window.frame.origin
+                    viewModel.beginDragging()
+                }
+                guard let startMouse = dragStartMouse,
+                      let startWindow = dragStartWindowOrigin else { return }
+                let current = NSEvent.mouseLocation
+                // 둘 다 bottom-left 화면 좌표 → 그대로 더함. 부호 반전 필요 없음.
+                let newOrigin = CGPoint(
+                    x: startWindow.x + (current.x - startMouse.x),
+                    y: startWindow.y + (current.y - startMouse.y)
+                )
+                window.setFrameOrigin(newOrigin)
+            }
+            .onEnded { _ in
+                dragStartMouse = nil
+                dragStartWindowOrigin = nil
+                guard let window = NSApp.windows.first(where: { $0 is PetPanel }) else { return }
+                viewModel.endDragging(at: window.frame.origin)
+            }
+    }
+}
