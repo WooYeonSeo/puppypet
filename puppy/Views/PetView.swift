@@ -52,6 +52,9 @@ struct PetView: View {
     @State private var dragStartMouse: CGPoint?
     @State private var dragStartWindowOrigin: CGPoint?
 
+    // walkdog.png sprite sheet (4 columns x 2 rows = 8 frames)을 한 번만 로드해 재사용
+    @State private var dogFrames: [NSImage] = []
+
     // 추후 PNG sprite 교체 가이드:
     // 1) Assets.xcassets에 dog_idle_0, dog_idle_1, dog_bark_0 ... 등록
     // 2) 아래 Text("🐶")를 Image("dog_idle_0").resizable().interpolation(.none) 로 교체
@@ -70,12 +73,24 @@ struct PetView: View {
             }
             .frame(height: 60, alignment: .bottom)
 
-            // 강아지
-            Text("🐶")
-                .font(.system(size: 80))
-                .frame(width: 120, height: 120)
-                .contentShape(Rectangle())
-                .gesture(dragGesture)
+            // 강아지: cute.mp4 영상 우선 → walkdog sprite → 이모지 순서
+            Group {
+                if let videoURL = Self.locatePuppyVideo() {
+                    LoopingVideoView(url: videoURL)
+                } else if !dogFrames.isEmpty {
+                    WalkingDogView(frames: dogFrames, fps: 8)
+                } else {
+                    Text("🐶").font(.system(size: 80))
+                }
+            }
+            .frame(width: 180, height: 220)
+            .contentShape(Rectangle())
+            .onAppear {
+                if dogFrames.isEmpty {
+                    dogFrames = SpriteSheet.loadFrames(name: "walkdog", columns: 4, rows: 2)
+                }
+            }
+            .gesture(dragGesture)
                 .contextMenu {
                     Button(viewModel.remindersEnabled ? "Reminders: On ✓" : "Reminders: Off") {
                         viewModel.onContextToggleReminders?()
@@ -93,8 +108,15 @@ struct PetView: View {
                     }
                 }
         }
-        .frame(width: 200, height: 200)
+        .frame(width: 200, height: 300)
         .animation(.easeInOut(duration: 0.2), value: viewModel.bubbleText)
+    }
+
+    /// puppy_alpha.mov(투명 배경) 우선, 없으면 puppy_move.mp4(원본) fallback.
+    private static func locatePuppyVideo() -> URL? {
+        if let alpha = Bundle.main.url(forResource: "puppy_alpha", withExtension: "mov") { return alpha }
+        if let mp4 = Bundle.main.url(forResource: "puppy_move", withExtension: "mp4") { return mp4 }
+        return nil
     }
 
     private var dragGesture: some Gesture {
