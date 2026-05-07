@@ -51,6 +51,7 @@ struct PetView: View {
     // NSEvent.mouseLocation = 화면 절대 좌표(bottom-left). 윈도우가 이동해도 영향 없음.
     @State private var dragStartMouse: CGPoint?
     @State private var dragStartWindowOrigin: CGPoint?
+    @State private var maxDragDistance: CGFloat = 0
 
     // walkdog.png sprite sheet (4 columns x 2 rows = 8 frames)을 한 번만 로드해 재사용
     @State private var dogFrames: [NSImage] = []
@@ -62,10 +63,11 @@ struct PetView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // 말풍선 영역 (고정 높이로 강아지 위치 흔들림 방지)
+            // 말풍선 영역 (고정 높이로 강아지 위치 흔들림 방지, offset으로 강아지 머리 근처까지 내림)
             Group {
                 if let bubble = viewModel.bubbleText {
                     SpeechBubbleView(text: bubble)
+                        .offset(y: 30)
                         .transition(.opacity.combined(with: .scale(scale: 0.9)))
                 } else {
                     Color.clear
@@ -133,18 +135,23 @@ struct PetView: View {
                 guard let startMouse = dragStartMouse,
                       let startWindow = dragStartWindowOrigin else { return }
                 let current = NSEvent.mouseLocation
+                let dx = current.x - startMouse.x
+                let dy = current.y - startMouse.y
+                maxDragDistance = max(maxDragDistance, hypot(dx, dy))
                 // 둘 다 bottom-left 화면 좌표 → 그대로 더함. 부호 반전 필요 없음.
-                let newOrigin = CGPoint(
-                    x: startWindow.x + (current.x - startMouse.x),
-                    y: startWindow.y + (current.y - startMouse.y)
-                )
+                let newOrigin = CGPoint(x: startWindow.x + dx, y: startWindow.y + dy)
                 window.setFrameOrigin(newOrigin)
             }
             .onEnded { _ in
+                let wasClick = maxDragDistance < 5
+                maxDragDistance = 0
                 dragStartMouse = nil
                 dragStartWindowOrigin = nil
                 guard let window = NSApp.windows.first(where: { $0 is PetPanel }) else { return }
                 viewModel.endDragging(at: window.frame.origin)
+                if wasClick {
+                    viewModel.showBubble("멍!")
+                }
             }
     }
 }
