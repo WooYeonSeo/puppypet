@@ -6,6 +6,7 @@ final class CalendarReminder {
     private var timer: Timer?
     private var firedEventIDs: Set<String> = []
     var onUpcomingEvent: ((CalendarEvent) -> Void)?
+    var onTokenExpired: (() -> Void)?
 
     init(service: CalendarService) {
         self.service = service
@@ -46,6 +47,9 @@ final class CalendarReminder {
             }
             // 끝나거나 사라진 이벤트 ID 정리
             firedEventIDs = firedEventIDs.intersection(stillUpcoming)
+        } catch CalendarError.tokenExpired {
+            stop()
+            onTokenExpired?()
         } catch {
             NSLog("[Calendar] fetch error: \(error)")
         }

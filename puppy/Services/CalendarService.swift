@@ -13,6 +13,7 @@ struct CalendarEvent: Identifiable, Equatable {
 
 enum CalendarError: Error {
     case notConnected
+    case tokenExpired
     case requestFailed(Int, String)
 }
 
@@ -102,10 +103,16 @@ final class CalendarService {
     private func validAccessToken() async throws -> String {
         guard let current = tokens else { throw CalendarError.notConnected }
         if Date() >= current.expiresAt, let rt = current.refreshToken {
-            let new = try await GoogleAuth.refresh(refreshToken: rt)
-            self.tokens = new
-            try? KeychainStore.saveTokens(new)
-            return new.accessToken
+            do {
+                let new = try await GoogleAuth.refresh(refreshToken: rt)
+                self.tokens = new
+                try? KeychainStore.saveTokens(new)
+                return new.accessToken
+            } catch GoogleAuthError.tokenExchangeFailed(let body) where body.contains("invalid_grant") {
+                // Test 모드 7일 만료 또는 사용자가 수동 revoke한 경우
+                disconnect()
+                throw CalendarError.tokenExpired
+            }
         }
         return current.accessToken
     }

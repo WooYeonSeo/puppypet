@@ -42,6 +42,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         calendarReminder.onUpcomingEvent = { [weak self] event in
             self?.petWindow.showBubble("\(event.title) 일정이 있다멍")
         }
+        calendarReminder.onTokenExpired = { [weak self] in
+            guard let self else { return }
+            self.petWindow.viewModel.calendarConnected = false
+            self.petWindow.showBubble("캘린더 만료됐다멍 다시 연결해줘 🐾")
+        }
         petWindow.viewModel.calendarConnected = calendarService.isConnected
         if calendarService.isConnected { calendarReminder.start() }
 
