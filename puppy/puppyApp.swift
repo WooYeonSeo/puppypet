@@ -17,6 +17,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var petWindow: PetWindowController!
     private var workTimer: WorkTimer!
     private var reminder: ReminderEngine!
+    private var calendarService: CalendarService!
+    private var calendarReminder: CalendarReminder!
+    private let googleAuth = GoogleAuth()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -33,6 +36,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             petWindow.hide()
         }
         petWindow.viewModel.remindersEnabled = settings.remindersEnabled
+
+        calendarService = CalendarService()
+        calendarReminder = CalendarReminder(service: calendarService)
+        calendarReminder.onUpcomingEvent = { [weak self] event in
+            self?.petWindow.showBubble("\(event.title) 일정이 있다멍")
+        }
+        petWindow.viewModel.calendarConnected = calendarService.isConnected
+        if calendarService.isConnected { calendarReminder.start() }
+
         wirePetContextMenu()
         applyMenuState()
 
@@ -114,6 +126,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         petWindow.viewModel.onContextQuit = {
             NSApp.terminate(nil)
+        }
+        petWindow.viewModel.onContextConnectCalendar = { [weak self] in
+            guard let self else { return }
+            Task { @MainActor in
+                do {
+                    let tokens = try await self.googleAuth.authenticate()
+                    self.calendarService.setTokens(tokens)
+                    self.petWindow.viewModel.calendarConnected = true
+                    self.calendarReminder.start()
+                    self.petWindow.showBubble("캘린더 연결됐다멍!")
+                } catch GoogleAuthError.userCanceled {
+                    // 사용자가 취소: 무시
+                } catch {
+                    NSLog("[Calendar] auth failed: \(error)")
+                    self.petWindow.showBubble("연결 실패다멍 😢")
+                }
+            }
+        }
+        petWindow.viewModel.onContextDisconnectCalendar = { [weak self] in
+            guard let self else { return }
+            self.calendarService.disconnect()
+            self.calendarReminder.stop()
+            self.petWindow.viewModel.calendarConnected = false
+            self.petWindow.showBubble("캘린더 끊었다멍")
         }
     }
 }

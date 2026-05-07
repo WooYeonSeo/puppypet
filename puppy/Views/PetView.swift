@@ -6,6 +6,7 @@ final class PetViewModel: ObservableObject {
     @Published var bubbleText: String?
     @Published var isDragging: Bool = false
     @Published var remindersEnabled: Bool = true
+    @Published var calendarConnected: Bool = false
     var onDragBegan: (() -> Void)?
     var onDragEnded: ((CGPoint) -> Void)?
 
@@ -14,6 +15,8 @@ final class PetViewModel: ObservableObject {
     var onContextResetTimer: (() -> Void)?
     var onContextHide: (() -> Void)?
     var onContextQuit: (() -> Void)?
+    var onContextConnectCalendar: (() -> Void)?
+    var onContextDisconnectCalendar: (() -> Void)?
 
     private var bubbleTask: Task<Void, Never>?
 
@@ -52,6 +55,7 @@ struct PetView: View {
     @State private var dragStartMouse: CGPoint?
     @State private var dragStartWindowOrigin: CGPoint?
     @State private var maxDragDistance: CGFloat = 0
+    @State private var lastBark: String?
 
     // walkdog.png sprite sheet (4 columns x 2 rows = 8 frames)을 한 번만 로드해 재사용
     @State private var dogFrames: [NSImage] = []
@@ -101,6 +105,16 @@ struct PetView: View {
                         viewModel.onContextResetTimer?()
                     }
                     Divider()
+                    if viewModel.calendarConnected {
+                        Button("Google 캘린더 연결 해제") {
+                            viewModel.onContextDisconnectCalendar?()
+                        }
+                    } else {
+                        Button("Google 캘린더 연결") {
+                            viewModel.onContextConnectCalendar?()
+                        }
+                    }
+                    Divider()
                     Button("Hide Puppy") {
                         viewModel.onContextHide?()
                     }
@@ -112,6 +126,12 @@ struct PetView: View {
         }
         .frame(width: 200, height: 300)
         .animation(.easeInOut(duration: 0.2), value: viewModel.bubbleText)
+    }
+
+    /// 직전과 다른 메시지를 랜덤으로 골라서 같은 멘트 연속 출력 방지.
+    private func pickBark() -> String {
+        let pool = PetMessages.onClick.filter { $0 != lastBark }
+        return pool.randomElement() ?? PetMessages.onClick.first ?? "멍!"
     }
 
     /// puppy_alpha.mov(투명 배경) 우선, 없으면 puppy_move.mp4(원본) fallback.
@@ -150,7 +170,9 @@ struct PetView: View {
                 guard let window = NSApp.windows.first(where: { $0 is PetPanel }) else { return }
                 viewModel.endDragging(at: window.frame.origin)
                 if wasClick {
-                    viewModel.showBubble("멍!")
+                    let message = pickBark()
+                    lastBark = message
+                    viewModel.showBubble(message)
                 }
             }
     }
