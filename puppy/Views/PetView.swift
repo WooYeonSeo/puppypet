@@ -92,6 +92,8 @@ struct PetView: View {
                 if viewModel.isThinking {
                     Text("💭")
                         .font(.system(size: 24))
+                        // 강아지 머리에 살짝 걸쳐 보이도록 dog frame 쪽으로 끌어내림
+                        .offset(y: 32)
                         .transition(.opacity.combined(with: .scale(scale: 0.7)))
                 }
                 if let bubble = viewModel.bubbleText {
@@ -104,7 +106,7 @@ struct PetView: View {
                         .transition(.opacity.combined(with: .scale(scale: 0.9)))
                 }
             }
-            .frame(height: 60, alignment: .bottom)
+            .frame(height: 140, alignment: .bottom)
 
             // 강아지: cute.mp4 영상 우선 → walkdog sprite → 이모지 순서
             Group {
@@ -151,7 +153,7 @@ struct PetView: View {
                     }
                 }
         }
-        .frame(width: 200, height: 300)
+        .frame(width: 200, height: 380)
         .animation(.easeInOut(duration: 0.2), value: viewModel.bubbleText)
         .animation(.easeInOut(duration: 0.25), value: viewModel.isThinking)
     }

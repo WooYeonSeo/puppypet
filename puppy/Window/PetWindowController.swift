@@ -6,7 +6,7 @@ final class PetWindowController {
     private let settings: SettingsStore
     let viewModel = PetViewModel()
 
-    static let petSize = CGSize(width: 200, height: 300)
+    static let petSize = CGSize(width: 200, height: 380)
 
     init(settings: SettingsStore) {
         self.settings = settings
