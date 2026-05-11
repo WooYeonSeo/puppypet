@@ -2,6 +2,10 @@
 
 macOS 메뉴바 위에서 함께 일하는 데스크탑 펫. 작업 중 휴식을 챙겨주고, 캘린더 일정과 Claude Code 작업 흐름까지 옆에서 알려줍니다.
 
+<p align="center">
+  <img src="docs/hero.png" alt="PuppyPet in action" width="520">
+</p>
+
 ## 기능
 
 - **메뉴바 펫** — 알파 채널 영상으로 움직이는 강아지, 자유롭게 드래그 (메뉴바·Dock 위도 OK)
