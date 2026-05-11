@@ -1,0 +1,19 @@
+## macOS
+.DS_Store
+
+## Xcode user-specific
+xcuserdata/
+*.xcuserstate
+*.xcuserdatad/
+
+## Build
+build/
+DerivedData/
+*.xcworkspace/xcuserdata/
+
+## Swift Package Manager
+.build/
+.swiftpm/
+
+## Local scratch
+File.txt
