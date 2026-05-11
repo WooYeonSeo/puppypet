@@ -12,15 +12,35 @@ macOS 메뉴바 위에서 함께 일하는 데스크탑 펫. 작업 중 휴식�
   - 진행 중일 때 💭 표시
   - 턴 끝나면 _"…클코 작업 끝났다멍"_ 말풍선 → 탭하면 마지막 응답 본문 팝오버
 
-## 셋업
+## 설치 (DMG)
 
-요구사항: macOS 14+, Xcode 15+
+[Releases](../../releases) 페이지에서 최신 `PuppyPet.dmg`를 받습니다.
+
+1. DMG를 더블클릭해서 마운트
+2. `puppy.app`을 `Applications` 폴더로 드래그
+3. 첫 실행 시 _"확인되지 않은 개발자"_ 경고가 뜨면 한 번만 우회:
+   - **우클릭 → 열기**, 또는
+   - **시스템 설정 → 개인정보 보호 및 보안** 하단의 _"열기 허용"_ 버튼, 또는
+   - 터미널에서: `xattr -dr com.apple.quarantine /Applications/puppy.app`
+
+(미서명·미공증 빌드이기 때문에 필요한 단계입니다.)
+
+## 셋업 (소스에서 빌드)
+
+요구사항: macOS 15.6+, Xcode 16+
 
 ```bash
 open puppy.xcodeproj
 ```
 
 Xcode에서 빌드(`⌘R`)하면 메뉴바 우측에 강아지가 뜹니다.
+
+로컬에서 DMG를 직접 만들고 싶다면:
+
+```bash
+./scripts/build_dmg.sh
+# → build/PuppyPet.dmg
+```
 
 ### Google Calendar (선택)
 
