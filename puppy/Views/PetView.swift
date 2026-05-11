@@ -84,20 +84,24 @@ struct PetView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // 말풍선 영역 (고정 높이로 강아지 위치 흔들림 방지, offset으로 강아지 머리 근처까지 내림)
-            Group {
+            // 말풍선 + 💭 영역 (고정 높이 60pt → 강아지 위치 흔들림 방지)
+            //   • 💭는 ZStack 바닥에 고정 → 강아지 머리 바로 위에 표시
+            //   • 말풍선은 평소엔 강아지 머리 근처(offset 30)로 내리고,
+            //     💭가 뜰 땐 위로 밀어 올려(offset -28) 겹침을 방지
+            ZStack(alignment: .bottom) {
+                if viewModel.isThinking {
+                    Text("💭")
+                        .font(.system(size: 24))
+                        .transition(.opacity.combined(with: .scale(scale: 0.7)))
+                }
                 if let bubble = viewModel.bubbleText {
                     SpeechBubbleView(text: bubble)
-                        // 💭가 떠 있는 동안에는 말풍선을 강아지 머리 위로 밀어
-                        // 우상단의 💭와 겹치지 않도록 한다.
-                        .offset(y: viewModel.isThinking ? -8 : 30)
+                        .offset(y: viewModel.isThinking ? -34 : 30)
                         .onTapGesture { viewModel.handleBubbleTap() }
                         .popover(isPresented: $viewModel.isShowingSummary, arrowEdge: .top) {
                             SummaryPopover(text: viewModel.summaryBody ?? "")
                         }
                         .transition(.opacity.combined(with: .scale(scale: 0.9)))
-                } else {
-                    Color.clear
                 }
             }
             .frame(height: 60, alignment: .bottom)
@@ -113,16 +117,6 @@ struct PetView: View {
                 }
             }
             .frame(width: 180, height: 220)
-            .overlay(alignment: .topTrailing) {
-                if viewModel.isThinking {
-                    Text("💭")
-                        .font(.system(size: 26))
-                        .padding(.top, 12)
-                        .padding(.trailing, 8)
-                        .transition(.opacity.combined(with: .scale(scale: 0.7)))
-                }
-            }
-            .animation(.easeInOut(duration: 0.25), value: viewModel.isThinking)
             .contentShape(Rectangle())
             .onAppear {
                 if dogFrames.isEmpty {
