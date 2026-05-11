@@ -14,11 +14,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_16.app || sudo xcode-select -s /Applications/Xcode.app
+      - name: Select Xcode (need 26.x — project deployment target is macOS 15.6)
+        run: |
+          for candidate in Xcode_26.2.app Xcode_26.3.app Xcode_26.1.1.app Xcode_26.0.1.app; do
+            if [ -d "/Applications/$candidate" ]; then
+              sudo xcode-select -s "/Applications/$candidate"
+              echo "Selected /Applications/$candidate"
+              break
+            fi
+          done
 
-      - name: Show Xcode version
-        run: xcodebuild -version
+      - name: Show Xcode and SDK
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks | grep -i macos
 
       - name: Build DMG
         run: ./scripts/build_dmg.sh
