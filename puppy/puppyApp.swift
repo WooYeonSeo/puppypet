@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var reminder: ReminderEngine!
     private var calendarService: CalendarService!
     private var calendarReminder: CalendarReminder!
+    private var transcriptWatcher: TranscriptWatcher!
     private let googleAuth = GoogleAuth()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -93,6 +94,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         workTimer.start()
+
+        transcriptWatcher = TranscriptWatcher()
+        transcriptWatcher.onThinkingChanged = { [weak self] thinking in
+            guard let self, self.settings.isPetVisible else { return }
+            self.petWindow.viewModel.isThinking = thinking
+        }
+        transcriptWatcher.onTurnEnded = { [weak self] lastPrompt, body in
+            guard let self else { return }
+            guard self.settings.isPetVisible else { return }
+            let snippet = lastPrompt.map { Self.truncate($0, max: 30) } ?? ""
+            let msg = snippet.isEmpty ? "클코 작업 끝났다멍" : "\"\(snippet)\" 클코 작업 끝났다멍"
+            self.petWindow.showBubble(msg, summary: body, autoHideAfter: 0)
+        }
+        transcriptWatcher.start()
+    }
+
+    private static func truncate(_ s: String, max: Int) -> String {
+        let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.count <= max { return trimmed }
+        let idx = trimmed.index(trimmed.startIndex, offsetBy: max)
+        return String(trimmed[..<idx]) + "…"
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -101,6 +123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         workTimer?.stop()
+        transcriptWatcher?.stop()
     }
 
     private func applyMenuState() {

@@ -7,6 +7,9 @@ final class PetViewModel: ObservableObject {
     @Published var isDragging: Bool = false
     @Published var remindersEnabled: Bool = true
     @Published var calendarConnected: Bool = false
+    @Published var isThinking: Bool = false
+    @Published var summaryBody: String?
+    @Published var isShowingSummary: Bool = false
     var onDragBegan: (() -> Void)?
     var onDragEnded: ((CGPoint) -> Void)?
 
@@ -20,9 +23,12 @@ final class PetViewModel: ObservableObject {
 
     private var bubbleTask: Task<Void, Never>?
 
-    func showBubble(_ text: String, autoHideAfter seconds: TimeInterval = 5) {
+    func showBubble(_ text: String, summary: String? = nil, autoHideAfter seconds: TimeInterval = 5) {
         bubbleTask?.cancel()
         bubbleText = text
+        summaryBody = summary
+        isShowingSummary = false
+        guard seconds > 0 else { return }
         bubbleTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
             if Task.isCancelled { return }
@@ -35,6 +41,17 @@ final class PetViewModel: ObservableObject {
     func clearBubble() {
         bubbleTask?.cancel()
         bubbleText = nil
+        summaryBody = nil
+        isShowingSummary = false
+    }
+
+    /// Toggle the popover when a summary is available; otherwise close the bubble.
+    func handleBubbleTap() {
+        if summaryBody != nil {
+            isShowingSummary.toggle()
+        } else {
+            clearBubble()
+        }
     }
 
     func beginDragging() {
@@ -71,7 +88,13 @@ struct PetView: View {
             Group {
                 if let bubble = viewModel.bubbleText {
                     SpeechBubbleView(text: bubble)
-                        .offset(y: 30)
+                        // 💭가 떠 있는 동안에는 말풍선을 강아지 머리 위로 밀어
+                        // 우상단의 💭와 겹치지 않도록 한다.
+                        .offset(y: viewModel.isThinking ? -8 : 30)
+                        .onTapGesture { viewModel.handleBubbleTap() }
+                        .popover(isPresented: $viewModel.isShowingSummary, arrowEdge: .top) {
+                            SummaryPopover(text: viewModel.summaryBody ?? "")
+                        }
                         .transition(.opacity.combined(with: .scale(scale: 0.9)))
                 } else {
                     Color.clear
@@ -90,6 +113,16 @@ struct PetView: View {
                 }
             }
             .frame(width: 180, height: 220)
+            .overlay(alignment: .topTrailing) {
+                if viewModel.isThinking {
+                    Text("💭")
+                        .font(.system(size: 26))
+                        .padding(.top, 12)
+                        .padding(.trailing, 8)
+                        .transition(.opacity.combined(with: .scale(scale: 0.7)))
+                }
+            }
+            .animation(.easeInOut(duration: 0.25), value: viewModel.isThinking)
             .contentShape(Rectangle())
             .onAppear {
                 if dogFrames.isEmpty {
@@ -126,6 +159,7 @@ struct PetView: View {
         }
         .frame(width: 200, height: 300)
         .animation(.easeInOut(duration: 0.2), value: viewModel.bubbleText)
+        .animation(.easeInOut(duration: 0.25), value: viewModel.isThinking)
     }
 
     /// 직전과 다른 메시지를 랜덤으로 골라서 같은 멘트 연속 출력 방지.

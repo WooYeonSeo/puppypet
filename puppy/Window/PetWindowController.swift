@@ -35,9 +35,9 @@ final class PetWindowController {
 
     var isVisible: Bool { panel.isVisible }
 
-    func showBubble(_ text: String) {
+    func showBubble(_ text: String, summary: String? = nil, autoHideAfter seconds: TimeInterval = 5) {
         guard !viewModel.isDragging else { return }
-        viewModel.showBubble(text)
+        viewModel.showBubble(text, summary: summary, autoHideAfter: seconds)
     }
 
     private static func resolveInitialOrigin(saved: CGPoint?) -> CGPoint {
