@@ -89,7 +89,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         workTimer.onTick = { [weak self] elapsed in
             guard let self else { return }
             guard self.settings.remindersEnabled else { return }
-            if let hit = self.reminder.categoryAndMessage(workedSeconds: elapsed) {
+            guard let hit = self.reminder.categoryAndMessage(workedSeconds: elapsed) else { return }
+            if hit.category == .remindBreak {
+                // 너무 오래 일했음 → 강아지를 화면 중앙으로 끌어와 walk.mp4로 전환.
+                // 사용자가 강아지를 클릭하기 전까지 유지(autoHide: 0).
+                self.petWindow.showBubble(hit.message, autoHideAfter: 0)
+                self.petWindow.triggerBreakAlert()
+            } else {
                 self.petWindow.showBubble(hit.message)
             }
         }
@@ -99,6 +105,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         transcriptWatcher.onThinkingChanged = { [weak self] thinking in
             guard let self, self.settings.isPetVisible else { return }
             self.petWindow.viewModel.isThinking = thinking
+        }
+        transcriptWatcher.onWaitingApprovalChanged = { [weak self] waiting in
+            guard let self, self.settings.isPetVisible else { return }
+            self.petWindow.viewModel.isWaitingApproval = waiting
         }
         transcriptWatcher.onTurnEnded = { [weak self] lastPrompt, body in
             guard let self else { return }

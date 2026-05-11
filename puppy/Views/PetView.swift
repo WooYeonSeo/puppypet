@@ -8,10 +8,21 @@ final class PetViewModel: ObservableObject {
     @Published var remindersEnabled: Bool = true
     @Published var calendarConnected: Bool = false
     @Published var isThinking: Bool = false
+    @Published var isWaitingApproval: Bool = false
+    /// 휴식 권장 알림 전체 상태(이동 + 도착 + 사용자 클릭 대기 포함).
+    @Published var isBreakAlert: Bool = false
+    /// 실제로 walk 영상이 재생되어야 하는 짧은 구간(왼쪽으로 걸어가는 중, 또는
+    /// 원위치로 돌아가는 중). 도착하면 false로 돌아가 일반 영상으로 전환.
+    @Published var isWalking: Bool = false
+    /// walk 영상이 오른쪽으로 진행 중이면 true → horizontal flip 적용해 자연스럽게.
+    @Published var isWalkFlipped: Bool = false
     @Published var summaryBody: String?
     @Published var isShowingSummary: Bool = false
     var onDragBegan: (() -> Void)?
     var onDragEnded: ((CGPoint) -> Void)?
+    /// 휴식 권장 알림 상태에서 강아지를 클릭하면 호출되어 윈도우 위치를 복원하고
+    /// 일반 영상으로 되돌릴 수 있게 한다.
+    var onBreakAlertDismissTap: (() -> Void)?
 
     // 우클릭 컨텍스트 메뉴 액션
     var onContextToggleReminders: (() -> Void)?
@@ -22,12 +33,26 @@ final class PetViewModel: ObservableObject {
     var onContextDisconnectCalendar: (() -> Void)?
 
     private var bubbleTask: Task<Void, Never>?
+    /// Sticky 말풍선(autoHideAfter == 0)이 떠 있는 동안에는 일반(자동 사라짐)
+    /// 말풍선이 덮어쓰지 못하도록 막는다. 사용자가 직접 닫기 전까지 유지.
+    private var isStickyBubble: Bool = false
+    /// popover가 한 번이라도 열렸는지 추적. SwiftUI popover는 바깥쪽 클릭으로
+    /// 자동 닫혀 `isShowingSummary`를 false로 되돌리는데, 그 직후 사용자가
+    /// 말풍선을 탭하면 "재오픈"이 아니라 "전체 닫기"여야 하기 때문에 별도 플래그로
+    /// 1회 오픈 이력을 보존한다.
+    private var popoverOpened: Bool = false
 
     func showBubble(_ text: String, summary: String? = nil, autoHideAfter seconds: TimeInterval = 5) {
+        // 사용자가 닫지 않은 sticky 말풍선이 있으면 transient 알림은 무시.
+        // (sticky → sticky 갱신은 허용: 새 Claude Code 완료 알림이 더 최신 정보)
+        if isStickyBubble && seconds > 0 { return }
+
         bubbleTask?.cancel()
         bubbleText = text
         summaryBody = summary
         isShowingSummary = false
+        popoverOpened = false
+        isStickyBubble = (seconds == 0)
         guard seconds > 0 else { return }
         bubbleTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
@@ -43,14 +68,24 @@ final class PetViewModel: ObservableObject {
         bubbleText = nil
         summaryBody = nil
         isShowingSummary = false
+        isStickyBubble = false
+        popoverOpened = false
     }
 
-    /// Toggle the popover when a summary is available; otherwise close the bubble.
+    /// 탭 동작:
+    ///   • summary 없음 → 즉시 닫기
+    ///   • summary 있고 popover 한 번도 안 열림 → popover 열기 (본문 확인)
+    ///   • summary 있고 popover가 열렸던 적 있음 → 전체 닫기
     func handleBubbleTap() {
-        if summaryBody != nil {
-            isShowingSummary.toggle()
-        } else {
+        if summaryBody == nil {
             clearBubble()
+            return
+        }
+        if popoverOpened {
+            clearBubble()
+        } else {
+            isShowingSummary = true
+            popoverOpened = true
         }
     }
 
@@ -62,6 +97,14 @@ final class PetViewModel: ObservableObject {
     func endDragging(at origin: CGPoint) {
         isDragging = false
         onDragEnded?(origin)
+    }
+
+    /// 강아지 머리 위 표시 우선순위:
+    /// 권한 대기(🔔) > 일반 작업 중(💭) > 없음.
+    var thinkingIndicator: String? {
+        if isWaitingApproval { return "🔔" }
+        if isThinking { return "💭" }
+        return nil
     }
 }
 
@@ -89,8 +132,10 @@ struct PetView: View {
             //   • 말풍선은 평소엔 강아지 머리 근처(offset 30)로 내리고,
             //     💭가 뜰 땐 위로 밀어 올려(offset -28) 겹침을 방지
             ZStack(alignment: .bottom) {
-                if viewModel.isThinking {
-                    Text("💭")
+                // 권한 대기(🔔) > 일반 thinking(💭) 우선순위.
+                // 권한 대기는 즉시 사용자 주의가 필요해 더 강한 상징을 사용.
+                if let indicator = viewModel.thinkingIndicator {
+                    Text(indicator)
                         .font(.system(size: 24))
                         // 강아지 머리에 살짝 걸쳐 보이도록 dog frame 쪽으로 끌어내림
                         .offset(y: 32)
@@ -98,7 +143,7 @@ struct PetView: View {
                 }
                 if let bubble = viewModel.bubbleText {
                     SpeechBubbleView(text: bubble)
-                        .offset(y: viewModel.isThinking ? -34 : 30)
+                        .offset(y: viewModel.thinkingIndicator != nil ? -15 : 30)
                         .onTapGesture { viewModel.handleBubbleTap() }
                         .popover(isPresented: $viewModel.isShowingSummary, arrowEdge: .top) {
                             SummaryPopover(text: viewModel.summaryBody ?? "")
@@ -108,10 +153,13 @@ struct PetView: View {
             }
             .frame(height: 140, alignment: .bottom)
 
-            // 강아지: cute.mp4 영상 우선 → walkdog sprite → 이모지 순서
+            // 강아지: 걸어가는 중일 때만 walk_alpha.mov, 그 외엔 puppy_alpha.mov.
+            // 도착하면 isWalking=false로 바뀌어 일반 서있는 영상으로 자연스럽게 전환.
+            // `.id`로 LoopingVideoView를 강제 재생성해야 영상이 실제로 바뀜.
             Group {
-                if let videoURL = Self.locatePuppyVideo() {
+                if let videoURL = Self.locatePuppyVideo(walking: viewModel.isWalking) {
                     LoopingVideoView(url: videoURL)
+                        .id(videoURL)
                 } else if !dogFrames.isEmpty {
                     WalkingDogView(frames: dogFrames, fps: 8)
                 } else {
@@ -119,6 +167,8 @@ struct PetView: View {
                 }
             }
             .frame(width: 180, height: 220)
+            // 걷는 영상이 한 방향만 표현되므로, 반대 방향(=오른쪽 걸음)일 때만 좌우 반전.
+            .scaleEffect(x: (viewModel.isWalking && viewModel.isWalkFlipped) ? -1 : 1, y: 1)
             .contentShape(Rectangle())
             .onAppear {
                 if dogFrames.isEmpty {
@@ -156,6 +206,8 @@ struct PetView: View {
         .frame(width: 200, height: 380)
         .animation(.easeInOut(duration: 0.2), value: viewModel.bubbleText)
         .animation(.easeInOut(duration: 0.25), value: viewModel.isThinking)
+        .animation(.easeInOut(duration: 0.25), value: viewModel.isWaitingApproval)
+        .animation(.easeInOut(duration: 0.3), value: viewModel.isBreakAlert)
     }
 
     /// 직전과 다른 메시지를 랜덤으로 골라서 같은 멘트 연속 출력 방지.
@@ -164,8 +216,17 @@ struct PetView: View {
         return pool.randomElement() ?? PetMessages.onClick.first ?? "멍!"
     }
 
-    /// puppy_alpha.mov(투명 배경) 우선, 없으면 puppy_move.mp4(원본) fallback.
-    private static func locatePuppyVideo() -> URL? {
+    /// 걷는 중이면 walk_alpha.mov → walk.mp4 순으로,
+    /// 그 외엔 puppy_alpha.mov → puppy_move.mp4 순으로 fallback.
+    private static func locatePuppyVideo(walking: Bool) -> URL? {
+        if walking {
+            if let walkAlpha = Bundle.main.url(forResource: "walk_alpha", withExtension: "mov") {
+                return walkAlpha
+            }
+            if let walk = Bundle.main.url(forResource: "walk", withExtension: "mp4") {
+                return walk
+            }
+        }
         if let alpha = Bundle.main.url(forResource: "puppy_alpha", withExtension: "mov") { return alpha }
         if let mp4 = Bundle.main.url(forResource: "puppy_move", withExtension: "mp4") { return mp4 }
         return nil
@@ -200,9 +261,14 @@ struct PetView: View {
                 guard let window = NSApp.windows.first(where: { $0 is PetPanel }) else { return }
                 viewModel.endDragging(at: window.frame.origin)
                 if wasClick {
-                    let message = pickBark()
-                    lastBark = message
-                    viewModel.showBubble(message)
+                    if viewModel.isBreakAlert {
+                        // 휴식 알림 중에는 클릭이 "확인" 의미 → 윈도우 복귀 + 영상 복원
+                        viewModel.onBreakAlertDismissTap?()
+                    } else {
+                        let message = pickBark()
+                        lastBark = message
+                        viewModel.showBubble(message)
+                    }
                 }
             }
     }

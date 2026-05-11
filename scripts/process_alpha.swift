@@ -5,8 +5,16 @@ import AVFoundation
 import Vision
 import CoreImage
 
-let inputURL = URL(fileURLWithPath: "/Users/yeonseowoo/dev/project/puppy/puppy/puppy/puppy_move.mp4")
-let outputURL = URL(fileURLWithPath: "/Users/yeonseowoo/dev/project/puppy/puppy/puppy/puppy_alpha.mov")
+// 사용법:
+//   ./process_alpha.swift                          → puppy_move.mp4 → puppy_alpha.mov (기본)
+//   ./process_alpha.swift INPUT OUTPUT             → 임의 경로 처리
+let args = CommandLine.arguments
+let defaultIn = "/Users/yeonseowoo/dev/project/puppy/puppy/puppy/puppy_move.mp4"
+let defaultOut = "/Users/yeonseowoo/dev/project/puppy/puppy/puppy/puppy_alpha.mov"
+let inputURL = URL(fileURLWithPath: args.count > 1 ? args[1] : defaultIn)
+let outputURL = URL(fileURLWithPath: args.count > 2 ? args[2] : defaultOut)
+print("In:  \(inputURL.path)")
+print("Out: \(outputURL.path)")
 
 func process() async throws {
     try? FileManager.default.removeItem(at: outputURL)

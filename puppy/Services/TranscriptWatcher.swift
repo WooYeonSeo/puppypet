@@ -14,6 +14,7 @@ import Foundation
 @MainActor
 final class TranscriptWatcher {
     private let projectsDir: URL
+    private let sessionsDir: URL
     private var timer: Timer?
     private var fileOffsets: [String: UInt64] = [:]
     private var notifiedAssistantUUIDs: Set<String> = []
@@ -26,16 +27,21 @@ final class TranscriptWatcher {
     private var sessionUpdatedAt: [String: Date] = [:]
     private let staleAfter: TimeInterval = 60
     private var lastThinking: Bool = false
+    private var lastWaitingApproval: Bool = false
 
     /// Fires on the main actor when overall thinking state flips.
     var onThinkingChanged: ((Bool) -> Void)?
     /// Fires on the main actor when an assistant turn ends. Args:
     /// `(lastUserPrompt, assistantTextBody)`.
     var onTurnEnded: ((String?, String?) -> Void)?
+    /// Fires when any Claude Code session pauses for a permission prompt
+    /// (status == "waiting" && waitingFor starts with "approve").
+    var onWaitingApprovalChanged: ((Bool) -> Void)?
 
     init() {
         let home = FileManager.default.homeDirectoryForCurrentUser
         self.projectsDir = home.appendingPathComponent(".claude/projects")
+        self.sessionsDir = home.appendingPathComponent(".claude/sessions")
     }
 
     func start() {
@@ -81,6 +87,37 @@ final class TranscriptWatcher {
         }
         expireStaleSessions()
         publishThinkingState()
+        publishWaitingApprovalState()
+    }
+
+    /// Checks `~/.claude/sessions/*.json` for any live session paused on a
+    /// permission prompt. Claude Code writes `status: "waiting"` and
+    /// `waitingFor: "approve <Tool>"` to that file while the prompt is open.
+    private func publishWaitingApprovalState() {
+        var anyWaiting = false
+        let cutoffMs = Date().timeIntervalSince1970 * 1000 - 60_000  // 60s stale window
+        let entries = (try? FileManager.default.contentsOfDirectory(
+            at: sessionsDir, includingPropertiesForKeys: nil
+        )) ?? []
+        for url in entries where url.pathExtension == "json" {
+            // `active.json` is a registry, not a session.
+            if url.lastPathComponent == "active.json" { continue }
+            guard let data = try? Data(contentsOf: url),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { continue }
+            let status = obj["status"] as? String ?? ""
+            let waitingFor = obj["waitingFor"] as? String ?? ""
+            let updatedAt = obj["updatedAt"] as? Double ?? 0
+            if updatedAt < cutoffMs { continue }
+            if status == "waiting" && waitingFor.lowercased().hasPrefix("approve") {
+                anyWaiting = true
+                break
+            }
+        }
+        if anyWaiting != lastWaitingApproval {
+            lastWaitingApproval = anyWaiting
+            onWaitingApprovalChanged?(anyWaiting)
+        }
     }
 
     private func processFile(at path: String) {
