@@ -143,13 +143,29 @@ final class TranscriptWatcher {
         }
 
         let data = handle.readDataToEndOfFile()
-        let newOffset = lastOffset + UInt64(data.count)
-        fileOffsets[path] = newOffset
-
-        guard let chunk = String(data: data, encoding: .utf8) else { return }
+        guard let chunk = String(data: data, encoding: .utf8) else {
+            fileOffsets[path] = lastOffset + UInt64(data.count)
+            return
+        }
         let trailingNewline = chunk.hasSuffix("\n")
         let parts = chunk.split(separator: "\n", omittingEmptySubsequences: false)
-        let completeLines = trailingNewline ? Array(parts) : Array(parts.dropLast())
+
+        // 마지막 라인이 newline 없이 끝났다면 아직 쓰기 진행 중인 partial. 그 만큼만
+        // offset을 advance하지 않고 다음 tick에서 다시 읽도록 보존. (이걸 빼먹으면
+        // 정확히 end_turn 라인이 partial이었을 때 영구 누락됨 → 완료 알림 miss.)
+        let completeLines: [Substring]
+        let consumedBytes: Int
+        if trailingNewline {
+            completeLines = Array(parts)
+            consumedBytes = data.count
+        } else if let partial = parts.last {
+            completeLines = Array(parts.dropLast())
+            consumedBytes = data.count - partial.utf8.count
+        } else {
+            completeLines = []
+            consumedBytes = 0
+        }
+        fileOffsets[path] = lastOffset + UInt64(consumedBytes)
 
         for line in completeLines where !line.isEmpty {
             handleLine(String(line), inFile: path)
