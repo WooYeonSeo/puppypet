@@ -1,16 +1,18 @@
 import Foundation
 
-/// Watches `~/.claude/projects/**/*.jsonl` and surfaces two events:
-///   * `onThinkingChanged(true)`  — any tracked session has a user prompt
-///                                  with no `end_turn` yet (work in progress).
-///   * `onTurnEnded(prompt, body)` — an assistant turn just hit `end_turn`.
-///                                  `prompt` is the most recent real user prompt
-///                                  in that transcript; `body` is the text
-///                                  content of the ending assistant turn (for
-///                                  popover preview).
+/// Watches Claude Code state and surfaces three signals:
+///   * `onThinkingChanged(busy)`           — any live session has status=="busy"
+///                                            (from ~/.claude/sessions/*.json).
+///   * `onWaitingApprovalChanged(waiting)` — any live session paused on a
+///                                            permission prompt.
+///   * `onTurnEnded(prompt, body)`         — an assistant turn just hit
+///                                            `end_turn` in a jsonl transcript.
 ///
-/// Self-contained: no external hook setup is required, so the app stays
-/// drop-in-installable on a fresh machine.
+/// Thinking/approval state come from the session-state JSON files because
+/// Claude Code itself maintains them; deriving them from jsonl parsing left
+/// stuck states when end_turn was missed.
+///
+/// Self-contained: no external hook setup is required.
 @MainActor
 final class TranscriptWatcher {
     private let projectsDir: URL
@@ -18,14 +20,6 @@ final class TranscriptWatcher {
     private var timer: Timer?
     private var fileOffsets: [String: UInt64] = [:]
     private var notifiedAssistantUUIDs: Set<String> = []
-
-    /// Per-transcript "is in progress" state. A path enters `true` when a real
-    /// user prompt is seen, exits to `false` on `end_turn`.
-    private var sessionInProgress: [String: Bool] = [:]
-    /// Last time a path's state was updated. Used to time out stuck sessions
-    /// (e.g. Claude Code crashed before writing `end_turn`).
-    private var sessionUpdatedAt: [String: Date] = [:]
-    private let staleAfter: TimeInterval = 60
     private var lastThinking: Bool = false
     private var lastWaitingApproval: Bool = false
 
@@ -85,15 +79,15 @@ final class TranscriptWatcher {
         for url in jsonlFiles() {
             processFile(at: url.path)
         }
-        expireStaleSessions()
-        publishThinkingState()
-        publishWaitingApprovalState()
+        publishSessionStates()
     }
 
-    /// Checks `~/.claude/sessions/*.json` for any live session paused on a
-    /// permission prompt. Claude Code writes `status: "waiting"` and
-    /// `waitingFor: "approve <Tool>"` to that file while the prompt is open.
-    private func publishWaitingApprovalState() {
+    /// `~/.claude/sessions/*.json`을 단일 진실 소스로 사용해 두 상태를 동시에 산출.
+    ///   • status=="busy" 인 세션이 하나라도 있으면 → isThinking (💭)
+    ///   • status=="waiting" + waitingFor가 "approve"로 시작 → isWaitingApproval (🔔)
+    /// Claude Code가 직접 갱신하는 파일이라 jsonl 추론보다 stuck 위험이 적음.
+    private func publishSessionStates() {
+        var anyBusy = false
         var anyWaiting = false
         let cutoffMs = Date().timeIntervalSince1970 * 1000 - 60_000  // 60s stale window
         let entries = (try? FileManager.default.contentsOfDirectory(
@@ -111,8 +105,13 @@ final class TranscriptWatcher {
             if updatedAt < cutoffMs { continue }
             if status == "waiting" && waitingFor.lowercased().hasPrefix("approve") {
                 anyWaiting = true
-                break
+            } else if status == "busy" {
+                anyBusy = true
             }
+        }
+        if anyBusy != lastThinking {
+            lastThinking = anyBusy
+            onThinkingChanged?(anyBusy)
         }
         if anyWaiting != lastWaitingApproval {
             lastWaitingApproval = anyWaiting
@@ -159,60 +158,28 @@ final class TranscriptWatcher {
 
     // MARK: - Parse
 
+    /// jsonl 라인은 end_turn 감지(완료 알림 트리거)에만 사용. 그 외 상태는
+    /// session JSON에서 가져오므로 user 라인 추적은 불필요.
     private func handleLine(_ line: String, inFile path: String) {
         guard let data = line.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return }
 
-        let type = obj["type"] as? String ?? ""
+        guard (obj["type"] as? String) == "assistant",
+              let message = obj["message"] as? [String: Any],
+              (message["stop_reason"] as? String) == "end_turn"
+        else { return }
 
-        switch type {
-        case "user":
-            // Only real user prompts (string content or all-text array) flip
-            // a session into "in progress". Tool results and meta lines don't.
-            guard (obj["isMeta"] as? Bool) != true,
-                  let message = obj["message"] as? [String: Any],
-                  isRealUserPrompt(content: message["content"])
-            else { return }
-            sessionInProgress[path] = true
-            sessionUpdatedAt[path] = Date()
-
-        case "assistant":
-            guard let message = obj["message"] as? [String: Any] else { return }
-            let stopReason = message["stop_reason"] as? String
-
-            // Any assistant activity refreshes the timestamp so the stale
-            // expiry doesn't kick in mid-stream.
-            sessionUpdatedAt[path] = Date()
-
-            guard stopReason == "end_turn" else { return }
-
-            let uuid = (obj["uuid"] as? String) ?? UUID().uuidString
-            guard !notifiedAssistantUUIDs.contains(uuid) else { return }
-            notifiedAssistantUUIDs.insert(uuid)
-            if notifiedAssistantUUIDs.count > 500 {
-                notifiedAssistantUUIDs.removeAll()
-            }
-
-            sessionInProgress[path] = false
-            let prompt = lastUserPrompt(in: path)
-            let body = extractAssistantText(from: message)
-            onTurnEnded?(prompt, body)
-
-        default:
-            break
+        let uuid = (obj["uuid"] as? String) ?? UUID().uuidString
+        guard !notifiedAssistantUUIDs.contains(uuid) else { return }
+        notifiedAssistantUUIDs.insert(uuid)
+        if notifiedAssistantUUIDs.count > 500 {
+            notifiedAssistantUUIDs.removeAll()
         }
-    }
 
-    private func isRealUserPrompt(content: Any?) -> Bool {
-        if let str = content as? String, !str.isEmpty {
-            return true
-        }
-        if let arr = content as? [[String: Any]], !arr.isEmpty,
-           arr.allSatisfy({ ($0["type"] as? String) == "text" }) {
-            return true
-        }
-        return false
+        let prompt = lastUserPrompt(in: path)
+        let body = extractAssistantText(from: message)
+        onTurnEnded?(prompt, body)
     }
 
     private func extractAssistantText(from message: [String: Any]) -> String? {
@@ -264,22 +231,4 @@ final class TranscriptWatcher {
         return found
     }
 
-    // MARK: - Thinking state
-
-    private func expireStaleSessions() {
-        let cutoff = Date().addingTimeInterval(-staleAfter)
-        for (path, inProgress) in sessionInProgress where inProgress {
-            if let ts = sessionUpdatedAt[path], ts < cutoff {
-                sessionInProgress[path] = false
-            }
-        }
-    }
-
-    private func publishThinkingState() {
-        let anyInProgress = sessionInProgress.values.contains(true)
-        if anyInProgress != lastThinking {
-            lastThinking = anyInProgress
-            onThinkingChanged?(anyInProgress)
-        }
-    }
 }
