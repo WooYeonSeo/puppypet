@@ -41,7 +41,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         calendarService = CalendarService()
         calendarReminder = CalendarReminder(service: calendarService)
         calendarReminder.onUpcomingEvent = { [weak self] event in
-            self?.petWindow.showBubble("\(event.title) 일정이 있다멍")
+            guard let self else { return }
+            var lines = ["10분 뒤 일정 있다멍", "• \(event.title)"]
+            if let loc = event.displayLocation {
+                lines.append("• 📍 \(loc)")
+            }
+            self.petWindow.showBubble(lines.joined(separator: "\n"))
         }
         calendarReminder.onTokenExpired = { [weak self] in
             guard let self else { return }
@@ -155,6 +160,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         petWindow.viewModel.onContextResetTimer = { [weak self] in
             self?.workTimer.reset()
             self?.reminder.resetTimer()
+        }
+        petWindow.viewModel.onContextTodaySchedule = { [weak self] in
+            guard let self else { return }
+            guard self.calendarService.isConnected else {
+                self.petWindow.showBubble("캘린더 연결 안 되어있다멍", autoHideAfter: 5)
+                return
+            }
+            Task { @MainActor in
+                // 지금 ~ 오늘 자정까지의 일정만 조회.
+                let now = Date()
+                let tomorrow = Calendar.current.startOfDay(for: now.addingTimeInterval(86400))
+                let secondsUntilMidnight = max(60, tomorrow.timeIntervalSince(now))
+                do {
+                    let events = try await self.calendarService.upcomingEvents(within: secondsUntilMidnight)
+                    if events.isEmpty {
+                        self.petWindow.showBubble("오늘 남은 일정 없다멍 🦴", autoHideAfter: 5)
+                    } else {
+                        let timeFormatter = DateFormatter()
+                        timeFormatter.dateFormat = "HH:mm"
+                        let bubbleLines = events.prefix(5).map { ev -> String in
+                            var s = "• \(timeFormatter.string(from: ev.start)) \(ev.title)"
+                            if let loc = ev.displayLocation {
+                                s += "\n  📍 \(loc)"
+                            }
+                            return s
+                        }.joined(separator: "\n")
+                        let header = "오늘 일정 \(events.count)개다멍"
+                        // 전체 목록은 summary popover에서 자세히
+                        let fullSummary = events.map { ev -> String in
+                            var s = "[\(timeFormatter.string(from: ev.start))] \(ev.title)"
+                            if let loc = ev.displayLocation {
+                                s += "\n  📍 \(loc)"
+                            }
+                            return s
+                        }.joined(separator: "\n\n")
+                        self.petWindow.showBubble(
+                            "\(header)\n\(bubbleLines)",
+                            summary: fullSummary,
+                            autoHideAfter: 0
+                        )
+                    }
+                } catch {
+                    self.petWindow.showBubble("일정 조회 실패: \(error)", autoHideAfter: 0)
+                }
+            }
         }
         petWindow.viewModel.onContextHide = { [weak self] in
             guard let self else { return }

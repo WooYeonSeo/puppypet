@@ -3,11 +3,20 @@ import Foundation
 struct CalendarEvent: Identifiable, Equatable {
     let id: String
     let summary: String?
+    let location: String?
     let start: Date
 
     var title: String {
         let s = summary?.trimmingCharacters(in: .whitespaces) ?? ""
         return s.isEmpty ? "(제목 없음)" : s
+    }
+
+    /// 표시용으로 정리된 location. 비어있으면 nil.
+    var displayLocation: String? {
+        guard let s = location?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else {
+            return nil
+        }
+        return s
     }
 }
 
@@ -96,7 +105,12 @@ final class CalendarService {
             guard let dt = item.start.dateTime,
                   let start = formatter.date(from: dt) else { return nil }
             // 캘린더별로 같은 ID 충돌 방지 위해 calendarId prefix
-            return CalendarEvent(id: "\(calendarId)::\(item.id)", summary: item.summary, start: start)
+            return CalendarEvent(
+                id: "\(calendarId)::\(item.id)",
+                summary: item.summary,
+                location: item.location,
+                start: start
+            )
         }
     }
 
@@ -135,6 +149,7 @@ final class CalendarService {
     private struct EventItem: Decodable {
         let id: String
         let summary: String?
+        let location: String?
         let start: EventDateTime
     }
 

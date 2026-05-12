@@ -31,6 +31,7 @@ final class PetViewModel: ObservableObject {
     var onContextQuit: (() -> Void)?
     var onContextConnectCalendar: (() -> Void)?
     var onContextDisconnectCalendar: (() -> Void)?
+    var onContextTodaySchedule: (() -> Void)?
 
     private var bubbleTask: Task<Void, Never>?
     /// Sticky 말풍선(autoHideAfter == 0)이 떠 있는 동안에는 일반(자동 사라짐)
@@ -193,6 +194,9 @@ struct PetView: View {
                             viewModel.onContextConnectCalendar?()
                         }
                     }
+                    Button("오늘 일정 알려줘") {
+                        viewModel.onContextTodaySchedule?()
+                    }
                     Divider()
                     Button("Hide Puppy") {
                         viewModel.onContextHide?()
@@ -250,8 +254,18 @@ struct PetView: View {
                 let dy = current.y - startMouse.y
                 maxDragDistance = max(maxDragDistance, hypot(dx, dy))
                 // 둘 다 bottom-left 화면 좌표 → 그대로 더함. 부호 반전 필요 없음.
-                let newOrigin = CGPoint(x: startWindow.x + dx, y: startWindow.y + dy)
-                window.setFrameOrigin(newOrigin)
+                let rawOrigin = CGPoint(x: startWindow.x + dx, y: startWindow.y + dy)
+                // 연결된 모든 화면의 union 안으로만 clamp → 멀티 모니터/외부 디스플레이
+                // 위에서도 자유롭게 드래그 가능, 완전 off-screen만 차단.
+                let union: CGRect = NSScreen.screens.isEmpty
+                    ? (window.screen?.frame ?? CGRect(x: 0, y: 0, width: 1440, height: 900))
+                    : NSScreen.screens.reduce(.null) { $0.union($1.frame) }
+                let clamped = ScreenClamp.clamp(
+                    origin: rawOrigin,
+                    size: window.frame.size,
+                    into: union
+                )
+                window.setFrameOrigin(clamped)
             }
             .onEnded { _ in
                 let wasClick = maxDragDistance < 5

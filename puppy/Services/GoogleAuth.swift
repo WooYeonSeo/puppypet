@@ -20,7 +20,9 @@ final class GoogleAuth: NSObject {
     static let clientID = "381258831743-ac4isn8gm4bbs12srd8ob343l0p1ol05.apps.googleusercontent.com"
     static let urlScheme = "com.googleusercontent.apps.381258831743-ac4isn8gm4bbs12srd8ob343l0p1ol05"
     static let redirectURI = "\(urlScheme):/oauth2redirect"
-    static let scope = "https://www.googleapis.com/auth/calendar.events.readonly"
+    // calendarList API도 사용하므로 calendar.readonly(읽기 전용 전체)가 필요.
+    // events.readonly 만으로는 calendarList 조회 시 "insufficient permissions"
+    static let scope = "https://www.googleapis.com/auth/calendar.readonly"
 
     private var session: ASWebAuthenticationSession?
     private var presentationProvider: PresentationProvider?
